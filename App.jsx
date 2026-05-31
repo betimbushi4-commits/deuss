@@ -1212,41 +1212,69 @@ function Overview({ clients, bookings }) {
   }));
   const maxCount = Math.max(1, ...byService.map((x) => x.count));
 
-  const handleBackupToSheets = async () => {
+  const handleBackupToSupabase = async () => {
     setBackupLoading(true);
     setBackupMsg("");
     try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session) {
+        setBackupMsg("✗ Error: Not authenticated");
+        return;
+      }
+
       // Prepare data for backup
       const backupData = {
         clients: clients.map((c) => ({
+          id: c.id,
           name: c.name,
           phone: c.phone || "",
           soldBy: c.soldBy || "",
           packages: c.packages.length,
           totalPaid: c.packages.reduce((s, p) => s + p.paid, 0),
+          packages_detail: c.packages,
         })),
         bookings: bookings.filter((b) => b.status === "done" || b.status === "cancelled").map((b) => ({
+          id: b.id,
           clientName: b.clientName,
+          clientId: b.clientId,
           service: b.service,
           status: b.status,
           date: b.date,
           time: b.time,
           revenue: b.revenue || 0,
+          therapist: b.therapist,
+          room: b.room,
         })),
         summary: {
           totalClients: clients.length,
           totalRevenue,
           sessionsDone,
           cancellations,
-          asOf: new Date().toISOString(),
+          backupDate: new Date().toISOString(),
         },
       };
 
-      // Log data to console (can be copied to Google Sheets)
-      console.log("=== BACKUP DATA ===");
-      console.log(JSON.stringify(backupData, null, 2));
+      // Call edge function to save backup
+      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/backup-data`;
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          backupType: "full",
+          data: backupData,
+        }),
+      });
 
-      setBackupMsg("✓ Data prepared. Check console and Google Sheets setup instructions below.");
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Backup failed");
+      }
+
+      const result = await response.json();
+      setBackupMsg(`✓ Backup saved successfully at ${new Date(result.backup.created_at).toLocaleString("en-GB")}`);
     } catch (error) {
       setBackupMsg("✗ Error: " + error.message);
     } finally {
@@ -1316,31 +1344,21 @@ function Overview({ clients, bookings }) {
       <div className="card" style={{ ...S.panel, marginTop: 18 }}>
         <h2 style={S.h2}>Data Backup</h2>
         <p style={{ color: "#8a8a83", fontSize: 13, marginTop: 10, lineHeight: 1.6 }}>
-          Keep your critical data safe by backing it up to Google Sheets. This includes all clients, completed appointments, cancellations, and revenue records.
+          Secure backup of all critical data: clients, packages, completed appointments, cancellations, and revenue records. Backups are stored safely in Supabase.
         </p>
         <button
           className="goldbtn"
           style={{ ...S.goldBtn, marginTop: 14 }}
-          onClick={handleBackupToSheets}
+          onClick={handleBackupToSupabase}
           disabled={backupLoading}
         >
-          {backupLoading ? "Preparing..." : "Prepare Backup"}
+          {backupLoading ? "Backing up..." : "Create Backup Now"}
         </button>
         {backupMsg && (
           <div style={{ marginTop: 10, fontSize: 12, color: backupMsg.startsWith("✓") ? GOLD_LIGHT : "#ff6b6b", fontWeight: 500 }}>
             {backupMsg}
           </div>
         )}
-        <div style={{ marginTop: 14, fontSize: 12, color: "#6f6f68", lineHeight: 1.8, paddingTop: 14, borderTop: "1px solid #221f1a" }}>
-          <strong style={{ color: "#8a8a83" }}>Setup instructions:</strong>
-          <ol style={{ margin: "8px 0 0 0", paddingLeft: 20 }}>
-            <li>Create a new Google Sheet</li>
-            <li>Click "Prepare Backup" to generate the data</li>
-            <li>Check your browser console (F12) for the data</li>
-            <li>Copy the data and paste it into your Google Sheet</li>
-            <li>Set up a backup schedule or do it manually</li>
-          </ol>
-        </div>
       </div>
     </div>
   );
