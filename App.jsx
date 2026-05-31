@@ -685,7 +685,16 @@ function Clients({ clients, bookings, onAdd, onEdit, onDelete }) {
                     <tr key={c.id} style={{ borderBottom: "1px solid #1c1a16", transition: "background 0.2s" }} onMouseEnter={(e) => e.currentTarget.style.background = "#1a1814"} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
                       <td style={{ padding: "12px 16px", fontSize: 14, color: "#f1ead6", fontWeight: 500 }}>{c.name}</td>
                       <td style={{ padding: "12px 16px", fontSize: 13, color: "#9b9b95" }}>{c.phone || "—"}</td>
-                      <td style={{ padding: "12px 16px", fontSize: 12, color: "#b6b6ad" }}>{c.soldBy || "—"}</td>
+                      <td style={{ padding: "12px 16px", fontSize: 12 }}>
+                        {c.soldBy ? (
+                          <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 8px", borderRadius: 6, background: therapistSoft(c.soldBy), border: `1px solid ${therapistColor(c.soldBy)}44` }}>
+                            <span style={{ width: 6, height: 6, borderRadius: "50%", background: therapistColor(c.soldBy) }} />
+                            <span style={{ color: therapistColor(c.soldBy), fontWeight: 600 }}>{c.soldBy}</span>
+                          </div>
+                        ) : (
+                          <span style={{ color: "#6f6f68" }}>—</span>
+                        )}
+                      </td>
                       <td style={{ padding: "12px 16px", fontSize: 12, color: "#8a8a83" }}>{c.packages.length} pkg{c.packages.length !== 1 ? "s" : ""}</td>
                       <td style={{ padding: "12px 16px", fontSize: 14, color: GOLD_LIGHT, fontWeight: 600, textAlign: "right" }}>{fmtEuro(totalPaid)}</td>
                       <td style={{ padding: "12px 16px", textAlign: "center" }}>
