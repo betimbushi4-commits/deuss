@@ -96,11 +96,22 @@ async function loadHistory() {
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const fmtEuro = (n) => `€${(Number(n) || 0).toFixed(2)}`;
-const todayISO = () => new Date().toISOString().slice(0, 10);
+
+// Get today's date in local timezone as ISO string (YYYY-MM-DD)
+const todayISO = () => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const niceDate = (iso) => {
-  const d = new Date(iso + "T00:00:00");
+  const [year, month, day] = iso.split('-').map(Number);
+  const d = new Date(year, month - 1, day);
   return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 };
+
 const niceDateTime = (ts) =>
   new Date(ts).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 
@@ -629,15 +640,21 @@ function Dashboard({ bookings, clients, onComplete, onCancel }) {
    Clients
    ============================================================ */
 function Clients({ clients, bookings, onAdd, onEdit, onDelete }) {
-  const [formState, setFormState] = useState(null); // null | { mode: "add" } | { mode: "edit", client }
-  const [confirmDel, setConfirmDel] = useState(null); // client to delete
+  const [formState, setFormState] = useState(null);
+  const [confirmDel, setConfirmDel] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 15;
+
+  const totalPages = Math.ceil(clients.length / itemsPerPage);
+  const start = (currentPage - 1) * itemsPerPage;
+  const paginatedClients = clients.slice(start, start + itemsPerPage);
 
   return (
     <div className="fade">
       <div style={S.pageHead}>
         <div>
           <h1 style={S.h1}>Clients</h1>
-          <p style={S.sub}>Multiple packages per client · edits are saved to History</p>
+          <p style={S.sub}>{clients.length} clients · Multiple packages per client · edits are saved to History</p>
         </div>
         <button className="goldbtn" style={S.goldBtn} onClick={() => setFormState({ mode: "add" })}>
           <Plus size={16} /> Add client
@@ -648,64 +665,72 @@ function Clients({ clients, bookings, onAdd, onEdit, onDelete }) {
       {clients.length === 0 ? (
         <div className="card" style={S.panel}><p style={{ color: "#8a8a83" }}>No clients yet. Add your first one above.</p></div>
       ) : (
-        <div style={S.clientGrid}>
-          {clients.map((c) => {
-            const totalPaid = c.packages.reduce((s, p) => s + p.paid, 0);
-            return (
-              <div key={c.id} className="card" style={S.clientCard}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <div>
-                    <div style={{ fontSize: 18, color: "#f1ead6", fontFamily: "Cormorant Garamond, serif", fontWeight: 600 }}>{c.name}</div>
-                    <div style={{ fontSize: 13, color: "#9b9b95", marginTop: 2 }}>{c.phone || "—"}</div>
-                  </div>
-                  <div style={{ display: "flex", gap: 7 }}>
-                    <button className="iconbtn" style={S.iconBtn} onClick={() => setFormState({ mode: "edit", client: c })} title="Edit">
-                      <Edit3 size={14} color="#8a8a83" />
-                    </button>
-                    <button className="iconbtn" style={S.iconBtn} onClick={() => setConfirmDel(c)} title="Delete">
-                      <Trash2 size={15} color="#8a8a83" />
-                    </button>
-                  </div>
-                </div>
-
-                {c.soldBy && (
-                  <div style={{ marginTop: 12 }}>
-                    <div style={{ ...S.chip, color: therapistColor(c.soldBy), background: therapistSoft(c.soldBy), borderColor: therapistColor(c.soldBy) + "55", display: "inline-flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ ...S.dot, width: 8, height: 8, background: therapistColor(c.soldBy) }} /> Sold by {c.soldBy}
-                    </div>
-                  </div>
-                )}
-
-                <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 14 }}>
-                  {c.packages.map((p) => {
-                    const remaining = p.sessions - p.sessionsUsed;
-                    const pct = p.sessions > 0 ? (p.sessionsUsed / p.sessions) * 100 : 0;
-                    return (
-                      <div key={p.id} style={S.pkgBlock}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                          <span style={{ fontSize: 13.5, color: "#e9e4d6", fontWeight: 600 }}>{p.service}</span>
-                          <span style={{ color: GOLD_LIGHT, fontWeight: 700, fontSize: 14 }}>{p.sessionsUsed}/{p.sessions}</span>
+        <>
+          <div className="card" style={{ ...S.panel, padding: 0, overflow: "hidden", marginTop: 16 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid #221f1a", background: "#15130f" }}>
+                  <th style={{ padding: "12px 16px", textAlign: "left", fontSize: 12, color: "#8a8a83", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8 }}>Name</th>
+                  <th style={{ padding: "12px 16px", textAlign: "left", fontSize: 12, color: "#8a8a83", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8 }}>Phone</th>
+                  <th style={{ padding: "12px 16px", textAlign: "left", fontSize: 12, color: "#8a8a83", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8 }}>Sold by</th>
+                  <th style={{ padding: "12px 16px", textAlign: "left", fontSize: 12, color: "#8a8a83", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8 }}>Packages</th>
+                  <th style={{ padding: "12px 16px", textAlign: "right", fontSize: 12, color: "#8a8a83", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8 }}>Total Paid</th>
+                  <th style={{ padding: "12px 16px", textAlign: "center", fontSize: 12, color: "#8a8a83", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8 }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginatedClients.map((c) => {
+                  const totalPaid = c.packages.reduce((s, p) => s + p.paid, 0);
+                  return (
+                    <tr key={c.id} style={{ borderBottom: "1px solid #1c1a16", transition: "background 0.2s" }} onMouseEnter={(e) => e.currentTarget.style.background = "#1a1814"} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
+                      <td style={{ padding: "12px 16px", fontSize: 14, color: "#f1ead6", fontWeight: 500 }}>{c.name}</td>
+                      <td style={{ padding: "12px 16px", fontSize: 13, color: "#9b9b95" }}>{c.phone || "—"}</td>
+                      <td style={{ padding: "12px 16px", fontSize: 12, color: "#b6b6ad" }}>{c.soldBy || "—"}</td>
+                      <td style={{ padding: "12px 16px", fontSize: 12, color: "#8a8a83" }}>{c.packages.length} pkg{c.packages.length !== 1 ? "s" : ""}</td>
+                      <td style={{ padding: "12px 16px", fontSize: 14, color: GOLD_LIGHT, fontWeight: 600, textAlign: "right" }}>{fmtEuro(totalPaid)}</td>
+                      <td style={{ padding: "12px 16px", textAlign: "center" }}>
+                        <div style={{ display: "flex", gap: 5, justifyContent: "center" }}>
+                          <button className="iconbtn" style={{ ...S.iconBtn, width: 26, height: 26 }} onClick={() => setFormState({ mode: "edit", client: c })} title="Edit">
+                            <Edit3 size={13} color="#8a8a83" />
+                          </button>
+                          <button className="iconbtn" style={{ ...S.iconBtn, width: 26, height: 26 }} onClick={() => setConfirmDel(c)} title="Delete">
+                            <Trash2 size={13} color="#8a8a83" />
+                          </button>
                         </div>
-                        <div style={S.progressTrack}>
-                          <div style={{ ...S.progressFill, width: `${pct}%` }} />
-                        </div>
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, color: "#8a8a83", marginTop: 6 }}>
-                          <span>{fmtEuro(p.paid)} · {fmtEuro(p.perSession)}/session</span>
-                          <span>{remaining} left</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
 
-                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 16, paddingTop: 14, borderTop: "1px solid #221f1a" }}>
-                  <span style={S.miniLabel}>TOTAL PAID</span>
-                  <span style={{ color: "#f1ead6", fontWeight: 700, fontSize: 15 }}>{fmtEuro(totalPaid)}</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+          {totalPages > 1 && (
+            <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 10, marginTop: 20 }}>
+              <button
+                className="iconbtn"
+                style={S.navArrow}
+                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                disabled={currentPage === 1}
+                title="Previous page"
+              >
+                <ChevronLeft size={18} color={currentPage === 1 ? "#3a3630" : GOLD} />
+              </button>
+              <span style={{ color: "#8a8a83", fontSize: 13, minWidth: 80, textAlign: "center" }}>
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                className="iconbtn"
+                style={S.navArrow}
+                onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                disabled={currentPage === totalPages}
+                title="Next page"
+              >
+                <ChevronRight size={18} color={currentPage === totalPages ? "#3a3630" : GOLD} />
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       {formState && (
@@ -1158,6 +1183,9 @@ function MoveModal({ booking, bookings, onClose, onSave }) {
    Overview
    ============================================================ */
 function Overview({ clients, bookings }) {
+  const [backupLoading, setBackupLoading] = useState(false);
+  const [backupMsg, setBackupMsg] = useState("");
+
   const allPkgs = clients.flatMap((c) => c.packages || []);
   const totalPackages = allPkgs.length;
   const totalPackageValue = allPkgs.reduce((s, p) => s + p.paid, 0);
@@ -1174,6 +1202,48 @@ function Overview({ clients, bookings }) {
     value: allPkgs.filter((p) => p.service === s).reduce((a, p) => a + p.paid, 0),
   }));
   const maxCount = Math.max(1, ...byService.map((x) => x.count));
+
+  const handleBackupToSheets = async () => {
+    setBackupLoading(true);
+    setBackupMsg("");
+    try {
+      // Prepare data for backup
+      const backupData = {
+        clients: clients.map((c) => ({
+          name: c.name,
+          phone: c.phone || "",
+          soldBy: c.soldBy || "",
+          packages: c.packages.length,
+          totalPaid: c.packages.reduce((s, p) => s + p.paid, 0),
+        })),
+        bookings: bookings.filter((b) => b.status === "done" || b.status === "cancelled").map((b) => ({
+          clientName: b.clientName,
+          service: b.service,
+          status: b.status,
+          date: b.date,
+          time: b.time,
+          revenue: b.revenue || 0,
+        })),
+        summary: {
+          totalClients: clients.length,
+          totalRevenue,
+          sessionsDone,
+          cancellations,
+          asOf: new Date().toISOString(),
+        },
+      };
+
+      // Log data to console (can be copied to Google Sheets)
+      console.log("=== BACKUP DATA ===");
+      console.log(JSON.stringify(backupData, null, 2));
+
+      setBackupMsg("✓ Data prepared. Check console and Google Sheets setup instructions below.");
+    } catch (error) {
+      setBackupMsg("✗ Error: " + error.message);
+    } finally {
+      setBackupLoading(false);
+    }
+  };
 
   const cards = [
     { label: "PACKAGES SOLD (TOTAL)", value: totalPackages, icon: Package },
@@ -1231,6 +1301,36 @@ function Overview({ clients, bookings }) {
             <KV k="Revenue earned" v={fmtEuro(totalRevenue)} gold />
             <KV k="Unredeemed value" v={fmtEuro(totalPackageValue - totalRevenue)} />
           </div>
+        </div>
+      </div>
+
+      <div className="card" style={{ ...S.panel, marginTop: 18 }}>
+        <h2 style={S.h2}>Data Backup</h2>
+        <p style={{ color: "#8a8a83", fontSize: 13, marginTop: 10, lineHeight: 1.6 }}>
+          Keep your critical data safe by backing it up to Google Sheets. This includes all clients, completed appointments, cancellations, and revenue records.
+        </p>
+        <button
+          className="goldbtn"
+          style={{ ...S.goldBtn, marginTop: 14 }}
+          onClick={handleBackupToSheets}
+          disabled={backupLoading}
+        >
+          {backupLoading ? "Preparing..." : "Prepare Backup"}
+        </button>
+        {backupMsg && (
+          <div style={{ marginTop: 10, fontSize: 12, color: backupMsg.startsWith("✓") ? GOLD_LIGHT : "#ff6b6b", fontWeight: 500 }}>
+            {backupMsg}
+          </div>
+        )}
+        <div style={{ marginTop: 14, fontSize: 12, color: "#6f6f68", lineHeight: 1.8, paddingTop: 14, borderTop: "1px solid #221f1a" }}>
+          <strong style={{ color: "#8a8a83" }}>Setup instructions:</strong>
+          <ol style={{ margin: "8px 0 0 0", paddingLeft: 20 }}>
+            <li>Create a new Google Sheet</li>
+            <li>Click "Prepare Backup" to generate the data</li>
+            <li>Check your browser console (F12) for the data</li>
+            <li>Copy the data and paste it into your Google Sheet</li>
+            <li>Set up a backup schedule or do it manually</li>
+          </ol>
         </div>
       </div>
     </div>
