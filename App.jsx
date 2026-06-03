@@ -777,6 +777,7 @@ function Clients({ clients, bookings, onAdd, onEdit, onDelete }) {
 
 function ClientFormModal({ mode, client, bookings, onClose, onSubmit }) {
   const blankPkg = () => ({ key: uid(), id: null, service: SERVICES[0], sessions: "", paid: "" });
+  const blankLegacy = () => ({ key: uid(), service: SERVICES[0], sessions: "", therapist: THERAPISTS[0].name });
   const isEdit = mode === "edit";
 
   const [name, setName] = useState(isEdit ? client.name : "");
@@ -787,11 +788,21 @@ function ClientFormModal({ mode, client, bookings, onClose, onSubmit }) {
       ? client.packages.map((p) => ({ key: p.id, id: p.id, service: p.service, sessions: String(p.sessions), paid: String(p.paid), sessionsUsed: p.sessionsUsed }))
       : [blankPkg()]
   );
+  const [legacyPkgs, setLegacyPkgs] = useState(
+    isEdit && client.legacy_packages
+      ? client.legacy_packages.map((p) => ({ key: uid(), service: p.service, sessions: String(p.sessions), therapist: p.therapist }))
+      : []
+  );
 
   const updatePkg = (key, field, val) =>
     setPkgs((ps) => ps.map((p) => (p.key === key ? { ...p, [field]: val } : p)));
   const addPkgRow = () => setPkgs((ps) => [...ps, blankPkg()]);
   const removePkgRow = (key) => setPkgs((ps) => (ps.length > 1 ? ps.filter((p) => p.key !== key) : ps));
+
+  const updateLegacy = (key, field, val) =>
+    setLegacyPkgs((ps) => ps.map((p) => (p.key === key ? { ...p, [field]: val } : p)));
+  const addLegacyRow = () => setLegacyPkgs((ps) => [...ps, blankLegacy()]);
+  const removeLegacyRow = (key) => setLegacyPkgs((ps) => ps.filter((p) => p.key !== key));
 
   // booked-but-not-done sessions per existing package (to warn against shrinking below committed sessions)
   const committedFor = (pkgId) => {
@@ -806,11 +817,13 @@ function ClientFormModal({ mode, client, bookings, onClose, onSubmit }) {
 
   const submit = () => {
     if (!name.trim() || validPkgs.length === 0) return;
+    const validLegacy = legacyPkgs.filter((p) => Number(p.sessions) > 0);
     onSubmit({
       name: name.trim(),
       phone,
       soldBy,
       packages: validPkgs.map((p) => ({ id: p.id || undefined, service: p.service, sessions: p.sessions, paid: p.paid })),
+      legacy_packages: validLegacy.length > 0 ? validLegacy.map((p) => ({ service: p.service, sessions: Number(p.sessions), therapist: p.therapist })) : [],
     });
   };
 
@@ -886,6 +899,52 @@ function ClientFormModal({ mode, client, bookings, onClose, onSubmit }) {
       <button className="mini" style={S.addPkgBtn} onClick={addPkgRow}>
         <Plus size={14} /> Add another package
       </button>
+
+      {/* Legacy packages section */}
+      <div style={{ marginTop: 20, paddingTop: 20, borderTop: "1px solid #221f1a" }}>
+        <label style={S.fieldLabel}>Legacy packages (old client)
+          <span style={{ fontSize: 11, color: "#8a8a83", fontWeight: 400, display: "block", marginTop: 2 }}>
+            For tracking historical sessions &amp; bonus. Not included in revenue/packages sold.
+          </span>
+        </label>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+          {legacyPkgs.map((p, i) => (
+            <div key={p.key} style={S.pkgEditRow}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <span style={{ fontSize: 12, color: "#8a8a83", fontWeight: 600 }}>Legacy {i + 1}</span>
+                <button className="iconbtn" style={{ ...S.iconBtn, width: 26, height: 26 }} onClick={() => removeLegacyRow(p.key)} title="Remove">
+                  <X size={13} color="#8a8a83" />
+                </button>
+              </div>
+              <select className="inp" style={{ ...S.input, marginBottom: 8 }} value={p.service}
+                onChange={(e) => updateLegacy(p.key, "service", e.target.value)}>
+                {SERVICES.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input className="inp" style={{ ...S.input, flex: 1 }} type="number" min="1" value={p.sessions}
+                  onChange={(e) => updateLegacy(p.key, "sessions", e.target.value)} placeholder="Sessions" />
+                <div style={{ display: "flex", gap: 8, flex: 1, alignItems: "center" }}>
+                  <span style={{ color: "#8a8a83", fontSize: 12 }}>Therapist</span>
+                  <select className="inp" style={{ ...S.input, flex: 1 }} value={p.therapist}
+                    onChange={(e) => updateLegacy(p.key, "therapist", e.target.value)}>
+                    {THERAPISTS.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
+                  </select>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        {legacyPkgs.length > 0 && (
+          <button className="mini" style={S.addPkgBtn} onClick={addLegacyRow}>
+            <Plus size={14} /> Add another legacy
+          </button>
+        )}
+        {legacyPkgs.length === 0 && (
+          <button className="mini" style={{ ...S.addPkgBtn, opacity: 0.6 }} onClick={addLegacyRow}>
+            <Plus size={14} /> Add legacy package
+          </button>
+        )}
+      </div>
 
       <div style={{ ...S.calcBox, marginTop: 14 }}>
         <span style={{ color: "#9b9b95", fontSize: 13 }}>Total{isEdit ? "" : " to pay"}</span>
@@ -1194,6 +1253,7 @@ function MoveModal({ booking, bookings, onClose, onSave }) {
 function Overview({ clients, bookings }) {
   const [backupLoading, setBackupLoading] = useState(false);
   const [backupMsg, setBackupMsg] = useState("");
+  const [backupRange, setBackupRange] = useState("all"); // today, week, month, all
 
   const allPkgs = clients.flatMap((c) => c.packages || []);
   const totalPackages = allPkgs.length;
@@ -1212,6 +1272,19 @@ function Overview({ clients, bookings }) {
   }));
   const maxCount = Math.max(1, ...byService.map((x) => x.count));
 
+  const getDateRange = () => {
+    const end = new Date();
+    const start = new Date();
+    if (backupRange === "today") {
+      start.setHours(0, 0, 0, 0);
+    } else if (backupRange === "week") {
+      start.setDate(end.getDate() - 7);
+    } else if (backupRange === "month") {
+      start.setMonth(end.getMonth() - 1);
+    }
+    return { start: start.toISOString().split("T")[0], end: end.toISOString().split("T")[0] };
+  };
+
   const handleBackupToSupabase = async () => {
     setBackupLoading(true);
     setBackupMsg("");
@@ -1222,8 +1295,16 @@ function Overview({ clients, bookings }) {
         return;
       }
 
+      const dateRange = getDateRange();
+      const filteredBookings = bookings.filter((b) => {
+        if (b.status !== "done" && b.status !== "cancelled") return false;
+        return b.date >= dateRange.start && b.date <= dateRange.end;
+      });
+
       // Prepare data for backup
       const backupData = {
+        range: backupRange,
+        dateRange,
         clients: clients.map((c) => ({
           id: c.id,
           name: c.name,
@@ -1232,8 +1313,9 @@ function Overview({ clients, bookings }) {
           packages: c.packages.length,
           totalPaid: c.packages.reduce((s, p) => s + p.paid, 0),
           packages_detail: c.packages,
+          legacy_packages: c.legacy_packages || [],
         })),
-        bookings: bookings.filter((b) => b.status === "done" || b.status === "cancelled").map((b) => ({
+        bookings: filteredBookings.map((b) => ({
           id: b.id,
           clientName: b.clientName,
           clientId: b.clientId,
@@ -1247,9 +1329,9 @@ function Overview({ clients, bookings }) {
         })),
         summary: {
           totalClients: clients.length,
-          totalRevenue,
-          sessionsDone,
-          cancellations,
+          sessionsDone: filteredBookings.filter((b) => b.status === "done").length,
+          cancellations: filteredBookings.filter((b) => b.status === "cancelled").length,
+          totalRevenue: filteredBookings.filter((b) => b.status === "done").reduce((s, b) => s + b.revenue, 0),
           backupDate: new Date().toISOString(),
         },
       };
@@ -1263,7 +1345,7 @@ function Overview({ clients, bookings }) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          backupType: "full",
+          backupType: backupRange,
           data: backupData,
         }),
       });
@@ -1274,11 +1356,78 @@ function Overview({ clients, bookings }) {
       }
 
       const result = await response.json();
-      setBackupMsg(`✓ Backup saved successfully at ${new Date(result.backup.created_at).toLocaleString("en-GB")}`);
+      setBackupMsg(`✓ Backup saved (${backupRange})`);
     } catch (error) {
       setBackupMsg("✗ Error: " + error.message);
     } finally {
       setBackupLoading(false);
+    }
+  };
+
+  const downloadBackup = (format) => {
+    const dateRange = getDateRange();
+    const filteredBookings = bookings.filter((b) => {
+      if (b.status !== "done" && b.status !== "cancelled") return false;
+      return b.date >= dateRange.start && b.date <= dateRange.end;
+    });
+
+    const backupData = {
+      range: backupRange,
+      dateRange,
+      clients: clients.map((c) => ({
+        name: c.name,
+        phone: c.phone || "",
+        soldBy: c.soldBy || "",
+        packages: c.packages.length,
+        totalPaid: c.packages.reduce((s, p) => s + p.paid, 0),
+        legacy_packages: (c.legacy_packages || []).length,
+      })),
+      bookings: filteredBookings,
+      summary: {
+        totalClients: clients.length,
+        sessionsDone: filteredBookings.filter((b) => b.status === "done").length,
+        cancellations: filteredBookings.filter((b) => b.status === "cancelled").length,
+        totalRevenue: filteredBookings.filter((b) => b.status === "done").reduce((s, b) => s + b.revenue, 0),
+        backupDate: new Date().toLocaleString(),
+      },
+    };
+
+    const timestamp = new Date().toISOString().split("T")[0];
+    const filename = `backup_${backupRange}_${timestamp}`;
+
+    if (format === "txt") {
+      const text = JSON.stringify(backupData, null, 2);
+      const blob = new Blob([text], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${filename}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else if (format === "xlsx") {
+      // Simple CSV export (Excel compatible)
+      let csv = "BACKUP SUMMARY\n";
+      csv += `Date: ${backupData.summary.backupDate}\n`;
+      csv += `Range: ${backupRange}\n\n`;
+      csv += "SUMMARY\n";
+      csv += `Total Clients,${backupData.summary.totalClients}\n`;
+      csv += `Sessions Done,${backupData.summary.sessionsDone}\n`;
+      csv += `Cancellations,${backupData.summary.cancellations}\n`;
+      csv += `Total Revenue,€${backupData.summary.totalRevenue.toFixed(2)}\n\n`;
+
+      csv += "CLIENTS\n";
+      csv += "Name,Phone,Sold By,Packages,Total Paid,Legacy Packages\n";
+      backupData.clients.forEach((c) => {
+        csv += `"${c.name}","${c.phone}","${c.soldBy}",${c.packages},€${c.totalPaid.toFixed(2)},${c.legacy_packages}\n`;
+      });
+
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${filename}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
     }
   };
 
@@ -1344,16 +1493,79 @@ function Overview({ clients, bookings }) {
       <div className="card" style={{ ...S.panel, marginTop: 18 }}>
         <h2 style={S.h2}>Data Backup</h2>
         <p style={{ color: "#8a8a83", fontSize: 13, marginTop: 10, lineHeight: 1.6 }}>
-          Secure backup of all critical data: clients, packages, completed appointments, cancellations, and revenue records. Backups are stored safely in Supabase.
+          Backup your data by date range. Backups stored in Supabase or download as TXT/CSV.
         </p>
-        <button
-          className="goldbtn"
-          style={{ ...S.goldBtn, marginTop: 14 }}
-          onClick={handleBackupToSupabase}
-          disabled={backupLoading}
-        >
-          {backupLoading ? "Backing up..." : "Create Backup Now"}
-        </button>
+
+        <div style={{ marginTop: 14, display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {[
+            { id: "today", label: "Today" },
+            { id: "week", label: "This week" },
+            { id: "month", label: "This month" },
+            { id: "all", label: "All time" },
+          ].map((r) => (
+            <button
+              key={r.id}
+              className="mini"
+              onClick={() => setBackupRange(r.id)}
+              style={{
+                padding: "8px 12px",
+                fontSize: 12,
+                borderRadius: 6,
+                border: `1px solid ${backupRange === r.id ? GOLD : "#2a2a26"}`,
+                background: backupRange === r.id ? `${GOLD}22` : "transparent",
+                color: backupRange === r.id ? GOLD : "#8a8a83",
+                fontWeight: backupRange === r.id ? 600 : 500,
+                cursor: "pointer",
+              }}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button
+            className="goldbtn"
+            style={{ ...S.goldBtn }}
+            onClick={handleBackupToSupabase}
+            disabled={backupLoading}
+          >
+            {backupLoading ? "Saving..." : "Save to Supabase"}
+          </button>
+          <button
+            className="mini"
+            style={{
+              padding: "10px 14px",
+              fontSize: 13,
+              borderRadius: 6,
+              border: `1px solid ${GOLD}44`,
+              background: `${GOLD}11`,
+              color: GOLD,
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+            onClick={() => downloadBackup("txt")}
+          >
+            Download TXT
+          </button>
+          <button
+            className="mini"
+            style={{
+              padding: "10px 14px",
+              fontSize: 13,
+              borderRadius: 6,
+              border: `1px solid ${GOLD}44`,
+              background: `${GOLD}11`,
+              color: GOLD,
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+            onClick={() => downloadBackup("xlsx")}
+          >
+            Download CSV
+          </button>
+        </div>
+
         {backupMsg && (
           <div style={{ marginTop: 10, fontSize: 12, color: backupMsg.startsWith("✓") ? GOLD_LIGHT : "#ff6b6b", fontWeight: 500 }}>
             {backupMsg}
@@ -1385,6 +1597,12 @@ function Revenue({ bookings, clients }) {
     const sessions = mine.length;
     const earned = mine.reduce((s, b) => s + b.revenue, 0);
     const bonus = earned * THERAPIST_BONUS_RATE;
+
+    // Legacy sessions (historical sessions not counted in revenue but counted for sessions total)
+    const legacySessions = clients.flatMap((c) => c.legacy_packages || [])
+      .filter((p) => p.therapist === t.name)
+      .reduce((s, p) => s + p.sessions, 0);
+
     // Count of each service performed
     const byService = {};
     SERVICES.forEach((s) => { byService[s] = mine.filter((b) => b.service === s).length; });
@@ -1393,7 +1611,7 @@ function Revenue({ bookings, clients }) {
     const soldPkgs = soldClients.flatMap((c) => c.packages || []);
     const packagesSold = soldPkgs.length;
     const soldValue = soldPkgs.reduce((s, p) => s + p.paid, 0);
-    return { ...t, sessions, earned, bonus, byService, packagesSold, soldValue };
+    return { ...t, sessions, legacySessions, earned, bonus, byService, packagesSold, soldValue };
   });
 
   const totalEarned = rows.reduce((s, r) => s + r.earned, 0);
@@ -1439,7 +1657,7 @@ function Revenue({ bookings, clients }) {
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <span style={{ ...S.dot, background: r.color }} />
                     <span style={{ color: "#f1ead6", fontWeight: 600, fontSize: 15 }}>{r.name}</span>
-                    <span style={{ color: "#8a8a83", fontSize: 12.5 }}>· {r.sessions} sessions</span>
+                    <span style={{ color: "#8a8a83", fontSize: 12.5 }}>· {r.sessions + r.legacySessions} sessions{r.legacySessions > 0 && <span style={{ color: "#8a8a83", fontSize: 11 }}> (+{r.legacySessions})</span>}</span>
                   </div>
                   <span style={{ fontSize: 13, color: "#9b9b95" }}>Bonus <b style={{ color: GOLD_LIGHT }}>{fmtEuro(r.bonus)}</b></span>
                 </div>
@@ -1630,7 +1848,7 @@ function Field({ label, children, style }) {
    Styles
    ============================================================ */
 const S = {
-  app: { display: "flex", minHeight: "100vh", background: "#0c0b0a", color: "#e9e4d6", fontFamily: "'Outfit', sans-serif" },
+  app: { display: "flex", flexDirection: "row", minHeight: "100vh", background: "#0c0b0a", color: "#e9e4d6", fontFamily: "'Outfit', sans-serif" },
   loginCard: { background: "linear-gradient(160deg, #16140f, #100f0d)", border: "1px solid #25221c", borderRadius: 18, padding: 32, width: "100%", maxWidth: 400, boxShadow: "0 30px 80px rgba(0,0,0,0.6)" },
   loginHeader: { textAlign: "center", marginBottom: 8 },
   sidebar: { width: 248, minWidth: 248, background: "#100f0d", borderRight: "1px solid #211f1b", display: "flex", flexDirection: "column", padding: "0 0 18px" },
@@ -1643,15 +1861,15 @@ const S = {
   navBtnActive: { background: "linear-gradient(90deg, rgba(201,162,39,0.16), rgba(201,162,39,0.04))", boxShadow: "inset 0 0 0 1px rgba(201,162,39,0.3)" },
   sideFoot: { marginTop: "auto", padding: "16px 22px 0" },
 
-  main: { flex: 1, padding: "30px 38px", overflowY: "auto", maxHeight: "100vh" },
-  h1: { fontFamily: "'Cormorant Garamond', serif", fontSize: 38, fontWeight: 600, color: "#f3eedd", margin: 0, lineHeight: 1.05 },
+  main: { flex: 1, padding: "clamp(12px, 5vw, 38px)", overflowY: "auto", maxHeight: "100vh" },
+  h1: { fontFamily: "'Cormorant Garamond', serif", fontSize: "clamp(24px, 8vw, 38px)", fontWeight: 600, color: "#f3eedd", margin: 0, lineHeight: 1.05 },
   sub: { color: "#9b9b95", marginTop: 6, fontSize: 15 },
   hr: { height: 1, background: "#211f1b", margin: "20px 0 24px" },
   h2: { fontFamily: "'Cormorant Garamond', serif", fontSize: 24, fontWeight: 600, color: "#f1ead6", margin: 0 },
 
   pageHead: { display: "flex", justifyContent: "space-between", alignItems: "flex-end" },
 
-  cardRow: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 },
+  cardRow: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16 },
   statCard: { background: "linear-gradient(160deg, #16140f, #100f0d)", border: "1px solid #25221c", borderRadius: 16, padding: "20px 20px 22px", transition: "transform .2s, border-color .2s" },
   statTop: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 },
   statLabel: { fontSize: 11, letterSpacing: 1.2, color: "#8a8a83", fontWeight: 600 },
@@ -1744,4 +1962,41 @@ const CSS = `
 @keyframes fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7) sepia(1) saturate(3) hue-rotate(5deg); cursor: pointer; }
 select.inp option { background: #14130f; }
+
+@media (max-width: 1200px) {
+  [style*="gridTemplateColumns: repeat(4"]  { grid-template-columns: repeat(2, 1fr) !important; }
+  [style*="gridTemplateColumns: 1.3fr 1fr"] { grid-template-columns: 1fr !important; }
+  [style*="gridTemplateColumns: 1fr 1fr"]   { grid-template-columns: 1fr !important; }
+}
+
+@media (max-width: 768px) {
+  body { font-size: 14px; }
+  .app { flex-direction: column; }
+  .sidebar { width: 100% !important; min-width: 100% !important; border-right: none; border-bottom: 1px solid #211f1b; padding: 0; }
+  .sidebar > * { display: none; }
+  .brand { padding: 12px 16px !important; display: block !important; }
+  .nav { display: none; }
+  .main { padding: 16px !important; max-height: 100vh !important; }
+  h1 { font-size: 28px !important; }
+  h2 { font-size: 18px !important; }
+  .pageHead { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .goldbtn { width: 100%; padding: 10px 14px !important; }
+  table { font-size: 12px; }
+  th, td { padding: 8px 6px !important; }
+  [style*="gridTemplateColumns"] { grid-template-columns: 1fr !important; }
+  .card { padding: 16px !important; }
+  .modal { max-width: 95vw !important; max-height: 90vh !important; }
+  .overlay { padding: 12px !important; }
+}
+
+@media (max-width: 480px) {
+  .main { padding: 12px !important; }
+  h1 { font-size: 24px !important; }
+  h2 { font-size: 16px !important; }
+  .card { padding: 12px !important; }
+  .statCard { padding: 14px !important; }
+  button { font-size: 12px; padding: 8px 12px !important; }
+  table { font-size: 11px; }
+  th, td { padding: 6px 4px !important; }
+}
 `;
