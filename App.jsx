@@ -770,7 +770,8 @@ function Clients({ clients, bookings, onAdd, onEdit, onDelete }) {
         <div className="card" style={S.panel}><p style={{ color: "#8a8a83" }}>No clients yet. Add your first one above.</p></div>
       ) : (
         <>
-          <div className="card" style={{ ...S.panel, padding: 0, overflow: "hidden", marginTop: 16 }}>
+          {/* Desktop Table View */}
+          <div className="clients-table-wrapper card" style={{ ...S.panel, padding: 0, overflow: "hidden", marginTop: 16 }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ borderBottom: "1px solid #221f1a", background: "#15130f" }}>
@@ -816,6 +817,52 @@ function Clients({ clients, bookings, onAdd, onEdit, onDelete }) {
                 })}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile Card View */}
+          <div className="clients-mobile-cards" style={{ display: "none", gridTemplateColumns: "1fr", gap: 12, marginTop: 16 }}>
+            {paginatedClients.map((c) => {
+              const totalPaid = c.packages.reduce((s, p) => s + p.paid, 0);
+              return (
+                <div key={c.id} className="card" style={{ ...S.panel, padding: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 16, color: "#f1ead6", fontWeight: 600 }}>{c.name}</div>
+                      {c.phone && <div style={{ fontSize: 12, color: "#9b9b95", marginTop: 4 }}>{c.phone}</div>}
+                    </div>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <button className="iconbtn" style={{ ...S.iconBtn, width: 26, height: 26 }} onClick={() => setFormState({ mode: "edit", client: c })} title="Edit">
+                        <Edit3 size={13} color="#8a8a83" />
+                      </button>
+                      <button className="iconbtn" style={{ ...S.iconBtn, width: 26, height: 26 }} onClick={() => setConfirmDel(c)} title="Delete">
+                        <Trash2 size={13} color="#8a8a83" />
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, paddingTop: 12, borderTop: "1px solid #221f1a" }}>
+                    <div>
+                      <div style={{ fontSize: 10, color: "#8a8a83", textTransform: "uppercase", letterSpacing: 0.8 }}>Sold by</div>
+                      {c.soldBy ? (
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 8px", borderRadius: 6, background: therapistSoft(c.soldBy), border: `1px solid ${therapistColor(c.soldBy)}44`, marginTop: 4 }}>
+                          <span style={{ width: 6, height: 6, borderRadius: "50%", background: therapistColor(c.soldBy) }} />
+                          <span style={{ color: therapistColor(c.soldBy), fontWeight: 600, fontSize: 12 }}>{c.soldBy}</span>
+                        </div>
+                      ) : (
+                        <span style={{ color: "#6f6f68", fontSize: 12, marginTop: 4 }}>—</span>
+                      )}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, color: "#8a8a83", textTransform: "uppercase", letterSpacing: 0.8 }}>Packages</div>
+                      <div style={{ fontSize: 13, color: "#cfcfc8", marginTop: 4 }}>{c.packages.length}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, color: "#8a8a83", textTransform: "uppercase", letterSpacing: 0.8 }}>Total Paid</div>
+                      <div style={{ fontSize: 14, color: GOLD_LIGHT, fontWeight: 600, marginTop: 4 }}>{fmtEuro(totalPaid)}</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           {totalPages > 1 && (
@@ -2105,7 +2152,12 @@ select.inp option { background: #14130f; }
   h2 { font-size: 18px !important; }
   .pageHead { flex-direction: column; align-items: flex-start; gap: 12px; }
   .goldbtn { width: 100%; padding: 10px 14px !important; font-size: 13px; }
-  table { font-size: 12px; }
+
+  /* Hide tables on mobile, show mobile cards */
+  table { display: none !important; }
+  .clients-table-wrapper { display: none !important; }
+  .clients-mobile-cards { display: grid !important; }
+
   th, td { padding: 8px 6px !important; }
   [style*="gridTemplateColumns"] { grid-template-columns: 1fr !important; }
   .card { padding: 16px !important; }
