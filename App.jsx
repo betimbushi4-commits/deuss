@@ -669,7 +669,13 @@ function Dashboard({ bookings, clients, onComplete, onCancel }) {
   const revenue = bookings.filter((b) => b.status === "done" && inMonth(b.date)).reduce((s, b) => s + b.revenue, 0);
   const packagesValue = clients
     .filter((c) => inMonth(new Date(c.createdAt).toISOString()))
-    .reduce((s, c) => s + (c.packages || []).reduce((a, p) => a + p.paid, 0), 0);
+    .reduce((s, c) => {
+      // Regular packages
+      const regularValue = (c.packages || []).reduce((a, p) => a + p.paid, 0);
+      // Legacy packages
+      const legacyValue = (c.legacy_packages || []).reduce((a, p) => a + (p.paid || 0), 0);
+      return s + regularValue + legacyValue;
+    }, 0);
 
   const today = todayISO();
   const todays = bookings
@@ -928,7 +934,7 @@ function Clients({ clients, bookings, onAdd, onEdit, onDelete }) {
 
 function ClientFormModal({ mode, client, bookings, onClose, onSubmit }) {
   const blankPkg = () => ({ key: uid(), id: null, service: SERVICES[0], sessions: "", paid: "" });
-  const blankLegacy = () => ({ key: uid(), service: SERVICES[0], sessions: "", therapist: THERAPISTS[0].name });
+  const blankLegacy = () => ({ key: uid(), service: SERVICES[0], sessions: "", paid: "", therapist: THERAPISTS[0].name });
   const isEdit = mode === "edit";
 
   const [name, setName] = useState(isEdit ? client.name : "");
@@ -1055,7 +1061,7 @@ function ClientFormModal({ mode, client, bookings, onClose, onSubmit }) {
       <div style={{ marginTop: 20, paddingTop: 20, borderTop: "1px solid #221f1a" }}>
         <label style={S.fieldLabel}>Legacy packages (old client)
           <span style={{ fontSize: 11, color: "#8a8a83", fontWeight: 400, display: "block", marginTop: 2 }}>
-            For tracking historical sessions &amp; bonus. Not included in revenue/packages sold.
+            For old clients. Included in packages sold &amp; bonus calculation.
           </span>
         </label>
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
@@ -1073,14 +1079,13 @@ function ClientFormModal({ mode, client, bookings, onClose, onSubmit }) {
               </select>
               <div style={{ display: "flex", gap: 8 }}>
                 <input className="inp" style={{ ...S.input, flex: 1 }} type="number" min="1" value={p.sessions}
-                  onChange={(e) => updateLegacy(p.key, "sessions", e.target.value)} placeholder="Sessions" />
-                <div style={{ display: "flex", gap: 8, flex: 1, alignItems: "center" }}>
-                  <span style={{ color: "#8a8a83", fontSize: 12 }}>Therapist</span>
-                  <select className="inp" style={{ ...S.input, flex: 1 }} value={p.therapist}
-                    onChange={(e) => updateLegacy(p.key, "therapist", e.target.value)}>
-                    {THERAPISTS.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
-                  </select>
-                </div>
+                  onChange={(e) => updateLegacy(p.key, "sessions", e.target.value)} placeholder="Sessions e.g. 10" />
+                <input className="inp" style={{ ...S.input, flex: 1 }} type="number" min="0" value={p.paid}
+                  onChange={(e) => updateLegacy(p.key, "paid", e.target.value)} placeholder="Paid € e.g. 270" />
+                <select className="inp" style={{ ...S.input, flex: 1 }} value={p.therapist}
+                  onChange={(e) => updateLegacy(p.key, "therapist", e.target.value)}>
+                  {THERAPISTS.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
+                </select>
               </div>
             </div>
           ))}
@@ -1407,9 +1412,10 @@ function Overview({ clients, bookings }) {
   const [backupRange, setBackupRange] = useState("all"); // today, week, month, all
 
   const allPkgs = clients.flatMap((c) => c.packages || []);
-  const totalPackages = allPkgs.length;
-  const totalPackageValue = allPkgs.reduce((s, p) => s + p.paid, 0);
-  const totalSessionsSold = allPkgs.reduce((s, p) => s + p.sessions, 0);
+  const allLegacy = clients.flatMap((c) => c.legacy_packages || []);
+  const totalPackages = allPkgs.length + allLegacy.length;
+  const totalPackageValue = allPkgs.reduce((s, p) => s + p.paid, 0) + allLegacy.reduce((s, p) => s + (p.paid || 0), 0);
+  const totalSessionsSold = allPkgs.reduce((s, p) => s + p.sessions, 0) + allLegacy.reduce((s, p) => s + p.sessions, 0);
   const sessionsDone = bookings.filter((b) => b.status === "done").length;
   const cancellations = bookings.filter((b) => b.status === "cancelled").length;
   const upcoming = bookings.filter((b) => b.status === "booked").length;
@@ -1418,8 +1424,8 @@ function Overview({ clients, bookings }) {
   // packages by service
   const byService = SERVICES.map((s) => ({
     service: s,
-    count: allPkgs.filter((p) => p.service === s).length,
-    value: allPkgs.filter((p) => p.service === s).reduce((a, p) => a + p.paid, 0),
+    count: allPkgs.filter((p) => p.service === s).length + allLegacy.filter((p) => p.service === s).length,
+    value: allPkgs.filter((p) => p.service === s).reduce((a, p) => a + p.paid, 0) + allLegacy.filter((p) => p.service === s).reduce((a, p) => a + (p.paid || 0), 0),
   }));
   const maxCount = Math.max(1, ...byService.map((x) => x.count));
 
