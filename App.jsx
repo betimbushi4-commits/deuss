@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { LayoutGrid, Calendar as CalIcon, Users, Euro, History as HistoryIcon, CircleCheck as CheckCircle2, Circle as XCircle, CalendarDays, Plus, Trash2, Clock, MapPin, TrendingUp, Award, X, ChevronLeft, ChevronRight, CreditCard as Edit3, Package, LogOut, LogIn } from "lucide-react";
+import { LayoutGrid, Calendar as CalIcon, Users, Euro, History as HistoryIcon, CircleCheck as CheckCircle2, Circle as XCircle, CalendarDays, Plus, Trash2, Clock, MapPin, TrendingUp, Award, X, ChevronLeft, ChevronRight, CreditCard as Edit3, Package, LogOut, LogIn, Menu } from "lucide-react";
 import { supabase } from "./src/lib/supabase";
 
 /* ============================================================
@@ -143,6 +143,7 @@ function migrateClient(c) {
    ============================================================ */
 export default function App() {
   const [tab, setTab] = useState("dashboard");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [clients, setClients] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [history, setHistory] = useState([]);
@@ -481,8 +482,8 @@ export default function App() {
     <div style={S.app}>
       <style>{CSS}</style>
 
-      {/* Sidebar */}
-      <aside style={S.sidebar}>
+      {/* Sidebar - Desktop version */}
+      <aside style={S.sidebar} className="desktop-sidebar">
         <div style={S.brand}>
           <div style={S.brandName}>Deuss Studio</div>
           <div style={S.brandSub}>MASSAGE CRM</div>
@@ -515,8 +516,111 @@ export default function App() {
         </div>
       </aside>
 
+      {/* Mobile Menu Overlay */}
+      {mobileMenuOpen && (
+        <div style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(0,0,0,0.7)",
+          zIndex: 40,
+          display: "none",
+        }} className="mobile-menu-overlay" onClick={() => setMobileMenuOpen(false)} />
+      )}
+
+      {/* Mobile Sidebar */}
+      <aside style={{
+        position: "fixed",
+        left: 0,
+        top: 0,
+        width: 248,
+        height: "100vh",
+        background: "#100f0d",
+        borderRight: "1px solid #211f1b",
+        display: "none",
+        flexDirection: "column",
+        padding: "0 0 18px",
+        zIndex: 41,
+        transform: mobileMenuOpen ? "translateX(0)" : "translateX(-100%)",
+        transition: "transform 0.3s ease",
+        overflowY: "auto",
+      }} className="mobile-sidebar">
+        <div style={S.brand}>
+          <div style={S.brandName}>Deuss Studio</div>
+          <div style={S.brandSub}>MASSAGE CRM</div>
+        </div>
+        <div style={S.navDivider} />
+        <nav style={S.nav}>
+          {NAV.map((n) => {
+            const Icon = n.icon;
+            const active = tab === n.id;
+            return (
+              <button key={n.id} className="navbtn" onClick={() => { setTab(n.id); setMobileMenuOpen(false); }}
+                style={{ ...S.navBtn, ...(active ? S.navBtnActive : {}) }}>
+                <Icon size={18} color={active ? GOLD_LIGHT : "#9b9b95"} strokeWidth={1.8} />
+                <span style={{ color: active ? GOLD_LIGHT : "#cfcfc8" }}>{n.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+        <div style={{ ...S.navDivider, marginTop: "auto" }} />
+        <div style={{ padding: "0 14px 14px" }}>
+          <button className="navbtn" onClick={() => { handleLogout(); setMobileMenuOpen(false); }} style={{ ...S.navBtn, width: "100%" }}>
+            <LogOut size={18} color="#9b9b95" strokeWidth={1.8} />
+            <span style={{ color: "#cfcfc8" }}>Sign out</span>
+          </button>
+        </div>
+        <div style={S.sideFoot}>
+          <div style={{ fontSize: 11, color: "#6f6f68", lineHeight: 1.6 }}>
+            {ROOM_COUNT} rooms · 08:00–21:00<br />Bonus {Math.round(THERAPIST_BONUS_RATE * 100)}%
+          </div>
+        </div>
+      </aside>
+
       {/* Main */}
       <main style={S.main}>
+        {/* Mobile Header with Hamburger */}
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 60,
+          background: "#100f0d",
+          borderBottom: "1px solid #211f1b",
+          display: "none",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "0 16px",
+          zIndex: 30,
+        }} className="mobile-header">
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} style={{
+              background: "transparent",
+              border: "none",
+              color: GOLD,
+              cursor: "pointer",
+              padding: 8,
+              display: "flex",
+            }}>
+              <Menu size={24} strokeWidth={2} />
+            </button>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: GOLD }}>Deuss</div>
+              <div style={{ fontSize: 9, color: "#8a8a83" }}>CRM</div>
+            </div>
+          </div>
+          <button onClick={handleLogout} style={{
+            background: "transparent",
+            border: "none",
+            color: "#9b9b95",
+            cursor: "pointer",
+            padding: 8,
+            display: "flex",
+          }}>
+            <LogOut size={20} strokeWidth={1.8} />
+          </button>
+        </div>
+
         {!loaded ? (
           <div style={{ color: "#9b9b95", padding: 40 }}>Loading…</div>
         ) : (
@@ -1973,47 +2077,28 @@ select.inp option { background: #14130f; }
   body { font-size: 14px; }
   .app { flex-direction: column !important; }
 
-  /* Hide sidebar, show compact header */
-  .sidebar {
-    width: 100% !important;
-    min-width: 100% !important;
-    border-right: none !important;
-    border-bottom: 1px solid #211f1b !important;
-    padding: 12px 16px !important;
-    flex-direction: row !important;
-    align-items: center !important;
-    justify-content: space-between !important;
-  }
-  .brand {
-    padding: 0 !important;
-    display: flex !important;
-    flex-direction: column !important;
-    gap: 0 !important;
-  }
-  .brandName { font-size: 18px !important; margin: 0 !important; }
-  .brandSub { font-size: 9px !important; margin-top: 2px !important; }
-  .nav {
-    display: flex !important;
-    gap: 0 !important;
-    padding: 0 !important;
-    flex-direction: row !important;
-  }
-  .navBtn {
-    padding: 6px 10px !important;
-    font-size: 12px !important;
-    gap: 6px !important;
-  }
-  .navBtn svg { width: 16px !important; height: 16px !important; }
-  .navDivider { display: none !important; }
-  .sideFoot {
+  /* Hide desktop sidebar */
+  .desktop-sidebar {
     display: none !important;
-    margin-top: 0 !important;
-    padding: 0 !important;
   }
 
-  .main {
-    padding: 16px !important;
-    max-height: calc(100vh - 80px) !important;
+  /* Show mobile sidebar */
+  .mobile-sidebar {
+    display: flex !important;
+  }
+
+  .mobile-menu-overlay {
+    display: block !important;
+  }
+
+  /* Show mobile header */
+  .mobile-header {
+    display: flex !important;
+  }
+
+  main {
+    padding-top: 70px !important;
+    max-height: calc(100vh - 60px) !important;
   }
 
   h1 { font-size: 26px !important; }
@@ -2029,7 +2114,7 @@ select.inp option { background: #14130f; }
 }
 
 @media (max-width: 480px) {
-  .main { padding: 12px !important; }
+  main { padding: 12px !important; }
   h1 { font-size: 22px !important; }
   h2 { font-size: 16px !important; }
   .card { padding: 12px !important; }
@@ -2038,8 +2123,5 @@ select.inp option { background: #14130f; }
   button { font-size: 12px; padding: 8px 12px !important; }
   table { font-size: 11px; }
   th, td { padding: 6px 4px !important; }
-  .sidebar { padding: 10px 12px !important; }
-  .brandName { font-size: 16px !important; }
-  .navBtn { padding: 4px 8px !important; font-size: 11px !important; }
 }
 `;
