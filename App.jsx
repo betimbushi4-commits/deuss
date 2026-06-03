@@ -1971,16 +1971,55 @@ select.inp option { background: #14130f; }
 
 @media (max-width: 768px) {
   body { font-size: 14px; }
-  .app { flex-direction: column; }
-  .sidebar { width: 100% !important; min-width: 100% !important; border-right: none; border-bottom: 1px solid #211f1b; padding: 0; }
-  .sidebar > * { display: none; }
-  .brand { padding: 12px 16px !important; display: block !important; }
-  .nav { display: none; }
-  .main { padding: 16px !important; max-height: 100vh !important; }
-  h1 { font-size: 28px !important; }
+  .app { flex-direction: column !important; }
+
+  /* Hide sidebar, show compact header */
+  .sidebar {
+    width: 100% !important;
+    min-width: 100% !important;
+    border-right: none !important;
+    border-bottom: 1px solid #211f1b !important;
+    padding: 12px 16px !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+  }
+  .brand {
+    padding: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0 !important;
+  }
+  .brandName { font-size: 18px !important; margin: 0 !important; }
+  .brandSub { font-size: 9px !important; margin-top: 2px !important; }
+  .nav {
+    display: flex !important;
+    gap: 0 !important;
+    padding: 0 !important;
+    flex-direction: row !important;
+  }
+  .navBtn {
+    padding: 6px 10px !important;
+    font-size: 12px !important;
+    gap: 6px !important;
+  }
+  .navBtn svg { width: 16px !important; height: 16px !important; }
+  .navDivider { display: none !important; }
+  .sideFoot {
+    display: none !important;
+    margin-top: 0 !important;
+    padding: 0 !important;
+  }
+
+  .main {
+    padding: 16px !important;
+    max-height: calc(100vh - 80px) !important;
+  }
+
+  h1 { font-size: 26px !important; }
   h2 { font-size: 18px !important; }
   .pageHead { flex-direction: column; align-items: flex-start; gap: 12px; }
-  .goldbtn { width: 100%; padding: 10px 14px !important; }
+  .goldbtn { width: 100%; padding: 10px 14px !important; font-size: 13px; }
   table { font-size: 12px; }
   th, td { padding: 8px 6px !important; }
   [style*="gridTemplateColumns"] { grid-template-columns: 1fr !important; }
@@ -1991,12 +2030,16 @@ select.inp option { background: #14130f; }
 
 @media (max-width: 480px) {
   .main { padding: 12px !important; }
-  h1 { font-size: 24px !important; }
+  h1 { font-size: 22px !important; }
   h2 { font-size: 16px !important; }
   .card { padding: 12px !important; }
   .statCard { padding: 14px !important; }
+  .statValue { font-size: 26px !important; }
   button { font-size: 12px; padding: 8px 12px !important; }
   table { font-size: 11px; }
   th, td { padding: 6px 4px !important; }
+  .sidebar { padding: 10px 12px !important; }
+  .brandName { font-size: 16px !important; }
+  .navBtn { padding: 4px 8px !important; font-size: 11px !important; }
 }
 `;
