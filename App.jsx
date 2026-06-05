@@ -22,7 +22,7 @@ const SERVICES = [
   "Relax Massage",
 ];
 
-const ROOMS = ["Room 1", "Room 2", "Room 3"];
+const ROOMS = ["Room 1", "Room 2", "Room 3", "Room 4"];
 const ROOM_COUNT = ROOMS.length;
 const THERAPIST_BONUS_RATE = 0.30; // 30% profit to physiotherapist
 const SESSION_MIN = 60; // each session lasts 60 minutes
@@ -61,6 +61,7 @@ async function loadClients() {
     soldBy: c.sold_by,
     createdAt: new Date(c.created_at).getTime(),
     packages: c.packages || [],
+    legacy_packages: c.legacy_packages || [],
   }));
 }
 
@@ -135,6 +136,7 @@ function migrateClient(c) {
       paid: c.paid || 0,
       perSession: c.perSession || 0,
     }],
+    legacy_packages: c.legacy_packages || [],
   };
 }
 
@@ -240,6 +242,7 @@ export default function App() {
       phone: data.phone,
       sold_by: data.soldBy,
       packages,
+      legacy_packages: data.legacy_packages || [],
     };
     const { data: inserted, error } = await supabase.from("clients").insert([client]).select();
     if (error) { console.error(error); return; }
@@ -250,6 +253,7 @@ export default function App() {
       phone: saved.phone || "",
       soldBy: saved.sold_by,
       packages: saved.packages,
+      legacy_packages: saved.legacy_packages || [],
       createdAt: new Date(saved.created_at).getTime(),
     }, ...c]);
     const summary = packages.map((p) => `${p.sessions} ${p.service}`).join(" + ");
@@ -293,11 +297,12 @@ export default function App() {
       phone: data.phone,
       sold_by: data.soldBy,
       packages: newPackages,
+      legacy_packages: data.legacy_packages || [],
     }).eq("id", id);
     if (error) { console.error(error); return; }
 
     setClients((cs) => cs.map((c) => c.id === id
-      ? { ...c, name: data.name, phone: data.phone, soldBy: data.soldBy, packages: newPackages }
+      ? { ...c, name: data.name, phone: data.phone, soldBy: data.soldBy, packages: newPackages, legacy_packages: data.legacy_packages || [] }
       : c));
 
     // Build a readable change summary for History
@@ -928,7 +933,7 @@ function Clients({ clients, bookings, onAdd, onEdit, onDelete }) {
 
 function ClientFormModal({ mode, client, bookings, onClose, onSubmit }) {
   const blankPkg = () => ({ key: uid(), id: null, service: SERVICES[0], sessions: "", paid: "" });
-  const blankLegacy = () => ({ key: uid(), service: SERVICES[0], sessions: "", therapist: THERAPISTS[0].name });
+  const blankLegacy = () => ({ key: uid(), service: SERVICES[0], sessions: "", paid: "", therapist: THERAPISTS[0].name });
   const isEdit = mode === "edit";
 
   const [name, setName] = useState(isEdit ? client.name : "");
@@ -941,7 +946,7 @@ function ClientFormModal({ mode, client, bookings, onClose, onSubmit }) {
   );
   const [legacyPkgs, setLegacyPkgs] = useState(
     isEdit && client.legacy_packages
-      ? client.legacy_packages.map((p) => ({ key: uid(), service: p.service, sessions: String(p.sessions), therapist: p.therapist }))
+      ? client.legacy_packages.map((p) => ({ key: uid(), service: p.service, sessions: String(p.sessions), paid: String(p.paid || ""), therapist: p.therapist }))
       : []
   );
 
@@ -968,13 +973,13 @@ function ClientFormModal({ mode, client, bookings, onClose, onSubmit }) {
 
   const submit = () => {
     if (!name.trim() || validPkgs.length === 0) return;
-    const validLegacy = legacyPkgs.filter((p) => Number(p.sessions) > 0);
+    const validLegacy = legacyPkgs.filter((p) => Number(p.sessions) > 0 && p.paid !== "" && Number(p.paid) >= 0);
     onSubmit({
       name: name.trim(),
       phone,
       soldBy,
       packages: validPkgs.map((p) => ({ id: p.id || undefined, service: p.service, sessions: p.sessions, paid: p.paid })),
-      legacy_packages: validLegacy.length > 0 ? validLegacy.map((p) => ({ service: p.service, sessions: Number(p.sessions), therapist: p.therapist })) : [],
+      legacy_packages: validLegacy.length > 0 ? validLegacy.map((p) => ({ service: p.service, sessions: Number(p.sessions), paid: Number(p.paid), therapist: p.therapist })) : [],
     });
   };
 
@@ -1074,6 +1079,8 @@ function ClientFormModal({ mode, client, bookings, onClose, onSubmit }) {
               <div style={{ display: "flex", gap: 8 }}>
                 <input className="inp" style={{ ...S.input, flex: 1 }} type="number" min="1" value={p.sessions}
                   onChange={(e) => updateLegacy(p.key, "sessions", e.target.value)} placeholder="Sessions" />
+                <input className="inp" style={{ ...S.input, flex: 1 }} type="number" min="0" value={p.paid}
+                  onChange={(e) => updateLegacy(p.key, "paid", e.target.value)} placeholder="Paid €" />
                 <div style={{ display: "flex", gap: 8, flex: 1, alignItems: "center" }}>
                   <span style={{ color: "#8a8a83", fontSize: 12 }}>Therapist</span>
                   <select className="inp" style={{ ...S.input, flex: 1 }} value={p.therapist}
@@ -1082,6 +1089,11 @@ function ClientFormModal({ mode, client, bookings, onClose, onSubmit }) {
                   </select>
                 </div>
               </div>
+              {Number(p.sessions) > 0 && Number(p.paid) > 0 && (
+                <div style={{ fontSize: 12, color: GOLD_LIGHT, marginTop: 7, textAlign: "right" }}>
+                  = {fmtEuro(Number(p.paid) / Number(p.sessions))} / session
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -1754,6 +1766,11 @@ function Revenue({ bookings, clients }) {
       .filter((p) => p.therapist === t.name)
       .reduce((s, p) => s + p.sessions, 0);
 
+    // Legacy bonus: 30% of the total paid for legacy packages (not per-session revenue)
+    const legacyBonus = clients.flatMap((c) => c.legacy_packages || [])
+      .filter((p) => p.therapist === t.name)
+      .reduce((s, p) => s + ((Number(p.paid) || 0) * THERAPIST_BONUS_RATE), 0);
+
     // Count of each service performed
     const byService = {};
     SERVICES.forEach((s) => { byService[s] = mine.filter((b) => b.service === s).length; });
@@ -1762,7 +1779,7 @@ function Revenue({ bookings, clients }) {
     const soldPkgs = soldClients.flatMap((c) => c.packages || []);
     const packagesSold = soldPkgs.length;
     const soldValue = soldPkgs.reduce((s, p) => s + p.paid, 0);
-    return { ...t, sessions, legacySessions, earned, bonus, byService, packagesSold, soldValue };
+    return { ...t, sessions, legacySessions, earned, bonus: bonus + legacyBonus, byService, packagesSold, soldValue };
   });
 
   const totalEarned = rows.reduce((s, r) => s + r.earned, 0);
@@ -2056,7 +2073,7 @@ const S = {
   navArrow: { background: "#16140f", border: "1px solid #2a2722", borderRadius: 9, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" },
 
   gridScroll: { overflowX: "auto" },
-  gridRow: { display: "grid", gridTemplateColumns: "70px repeat(3, minmax(150px, 1fr))", borderBottom: "1px solid #1c1a16" },
+  gridRow: { display: "grid", gridTemplateColumns: "70px repeat(4, minmax(150px, 1fr))", borderBottom: "1px solid #1c1a16" },
   gridHeadRow: { position: "sticky", top: 0, background: "#15130f", zIndex: 2 },
   gridHeadCell: { fontSize: 12, letterSpacing: 1, color: "#8a8a83", fontWeight: 700, textTransform: "uppercase" },
   gridTimeCell: { padding: "10px 12px", fontSize: 13, color: "#9b9b95", borderRight: "1px solid #1c1a16", display: "flex", alignItems: "flex-start" },
@@ -2075,7 +2092,7 @@ const S = {
   kvRow: { display: "flex", justifyContent: "space-between", padding: "11px 0", borderBottom: "1px solid #1c1a16" },
 
   overlay: { position: "fixed", inset: 0, background: "rgba(6,5,4,0.72)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: 20 },
-  modal: { width: "100%", maxWidth: 460, background: "linear-gradient(160deg, #17150f, #100f0d)", border: "1px solid #2c281f", borderRadius: 18, padding: 24, boxShadow: "0 30px 80px rgba(0,0,0,0.6)" },
+  modal: { width: "100%", maxWidth: 460, maxHeight: "90vh", overflowY: "auto", background: "linear-gradient(160deg, #17150f, #100f0d)", border: "1px solid #2c281f", borderRadius: 18, padding: 24, boxShadow: "0 30px 80px rgba(0,0,0,0.6)" },
   modalHead: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
   fieldLabel: { display: "block", fontSize: 12, letterSpacing: 0.5, color: "#9b9b95", marginBottom: 6, fontWeight: 600 },
   input: { width: "100%", background: "#0e0d0b", border: "1px solid #2c281f", borderRadius: 9, padding: "10px 12px", color: "#f1ead6", fontSize: 14, fontFamily: "inherit", outline: "none", boxSizing: "border-box" },
