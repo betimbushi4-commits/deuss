@@ -431,11 +431,35 @@ export default function App() {
   const cancelBooking = async (id) => {
     const c = bookings.find((x) => x.id === id);
     if (!c) return;
+    // If booking was completed, decrement sessions used
+    if (c.status === "done") {
+      const client = clients.find((cl) => cl.id === c.clientId);
+      if (client) {
+        if (c.isLegacy) {
+          const updatedLegacy = client.legacy_packages.map((p) => {
+            if (p.id !== c.packageId) return p;
+            const used = Math.max(0, (p.sessionsUsed || 0) - 1);
+            return { ...p, sessionsUsed: used };
+          });
+          await supabase.from("clients").update({ legacy_packages: updatedLegacy }).eq("id", c.clientId);
+          setClients((cs) => cs.map((cl) => cl.id === c.clientId ? { ...cl, legacy_packages: updatedLegacy } : cl));
+        } else {
+          const updatedPackages = client.packages.map((p) => {
+            if (p.id !== c.packageId) return p;
+            const used = Math.max(0, p.sessionsUsed - 1);
+            return { ...p, sessionsUsed: used };
+          });
+          await supabase.from("clients").update({ packages: updatedPackages }).eq("id", c.clientId);
+          setClients((cs) => cs.map((cl) => cl.id === c.clientId ? { ...cl, packages: updatedPackages } : cl));
+        }
+      }
+    }
     const { error } = await supabase.from("bookings").update({ status: "cancelled" }).eq("id", id);
     if (error) { console.error(error); return; }
     setBookings((b) => b.map((x) => (x.id === id ? { ...x, status: "cancelled" } : x)));
+    const bonus = c.isLegacy ? 0 : ((c.revenue || 0) * THERAPIST_BONUS_RATE);
     log("booking_cancelled",
-      `Cancelled ${c.clientName} with ${c.therapist} • ${niceDate(c.date)} ${c.time}`);
+      `Cancelled ${c.clientName} with ${c.therapist} • ${niceDate(c.date)} ${c.time}${bonus > 0 ? ` · cancelled bonus ${fmtEuro(bonus)}` : ""}`);
   };
 
   const moveBooking = async (id, newDate, newTime, newRoom) => {
@@ -456,10 +480,36 @@ export default function App() {
 
   const deleteBooking = async (id) => {
     const bk = bookings.find((x) => x.id === id);
+    // If booking was completed, decrement sessions used
+    if (bk && bk.status === "done") {
+      const client = clients.find((cl) => cl.id === bk.clientId);
+      if (client) {
+        if (bk.isLegacy) {
+          const updatedLegacy = client.legacy_packages.map((p) => {
+            if (p.id !== bk.packageId) return p;
+            const used = Math.max(0, (p.sessionsUsed || 0) - 1);
+            return { ...p, sessionsUsed: used };
+          });
+          await supabase.from("clients").update({ legacy_packages: updatedLegacy }).eq("id", bk.clientId);
+          setClients((cs) => cs.map((cl) => cl.id === bk.clientId ? { ...cl, legacy_packages: updatedLegacy } : cl));
+        } else {
+          const updatedPackages = client.packages.map((p) => {
+            if (p.id !== bk.packageId) return p;
+            const used = Math.max(0, p.sessionsUsed - 1);
+            return { ...p, sessionsUsed: used };
+          });
+          await supabase.from("clients").update({ packages: updatedPackages }).eq("id", bk.clientId);
+          setClients((cs) => cs.map((cl) => cl.id === bk.clientId ? { ...cl, packages: updatedPackages } : cl));
+        }
+      }
+    }
     const { error } = await supabase.from("bookings").delete().eq("id", id);
     if (error) { console.error(error); return; }
     setBookings((b) => b.filter((x) => x.id !== id));
-    if (bk) log("booking_deleted", `Removed booking for ${bk.clientName} • ${niceDate(bk.date)} ${bk.time}`);
+    if (bk) {
+      const bonus = bk.isLegacy ? 0 : ((bk.revenue || 0) * THERAPIST_BONUS_RATE);
+      log("booking_deleted", `Removed booking for ${bk.clientName} • ${niceDate(bk.date)} ${bk.time}${bonus > 0 ? ` · deleted bonus ${fmtEuro(bonus)}` : ""}`);
+    }
   };
 
   const NAV = [
@@ -696,7 +746,7 @@ function Dashboard({ bookings, clients, onComplete, onCancel }) {
 
   const sessionsDone = bookings.filter((b) => b.status === "done" && inMonth(b.date)).length;
   const cancellations = bookings.filter((b) => b.status === "cancelled" && inMonth(b.date)).length;
-  const revenue = bookings.filter((b) => b.status === "done" && inMonth(b.date)).reduce((s, b) => s + b.revenue, 0);
+  const revenue = bookings.filter((b) => b.status === "done" && inMonth(b.date) && !b.isLegacy).reduce((s, b) => s + b.revenue, 0);
   const packagesValue = clients
     .filter((c) => inMonth(new Date(c.createdAt).toISOString()))
     .reduce((s, c) => s + (c.packages || []).reduce((a, p) => a + p.paid, 0), 0);
@@ -1812,9 +1862,10 @@ function Revenue({ bookings, clients }) {
   const rows = THERAPISTS.map((t) => {
     // Sessions this therapist performed → revenue earned + bonus
     const mine = done.filter((b) => b.therapist === t.name);
+    const regularSessions = mine.filter((b) => !b.isLegacy).length;
     const sessions = mine.length;
     const earned = mine.reduce((s, b) => s + b.revenue, 0);
-    const bonus = earned * THERAPIST_BONUS_RATE;
+    const regularBonus = earned * THERAPIST_BONUS_RATE;
 
     // Legacy sessions (historical sessions not counted in revenue but counted for sessions total)
     const legacySessions = clients.flatMap((c) => c.legacy_packages || [])
@@ -1840,7 +1891,7 @@ function Revenue({ bookings, clients }) {
     const soldPkgs = soldClients.flatMap((c) => c.packages || []);
     const packagesSold = soldPkgs.length;
     const soldValue = soldPkgs.reduce((s, p) => s + p.paid, 0);
-    return { ...t, sessions, legacySessions, earned, bonus: bonus + legacyBonus, byService, packagesSold, soldValue };
+    return { ...t, regularSessions, sessions, legacySessions, earned, regularBonus, legacyBonus, bonus: regularBonus + legacyBonus, byService, packagesSold, soldValue };
   });
 
   const totalEarned = rows.reduce((s, r) => s + r.earned, 0);
@@ -1878,24 +1929,33 @@ function Revenue({ bookings, clients }) {
         {/* Sessions performed + bonus */}
         <div className="card" style={S.panel}>
           <h2 style={S.h2}>Sessions & bonus</h2>
-          <p style={{ color: "#8a8a83", fontSize: 12.5, marginTop: 4 }}>From sessions each therapist performed</p>
+          <p style={{ color: "#8a8a83", fontSize: 12.5, marginTop: 4 }}>Each session = 30% bonus</p>
           <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 16 }}>
-            {rows.map((r) => (
-              <div key={r.name}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <span style={{ ...S.dot, background: r.color }} />
-                    <span style={{ color: "#f1ead6", fontWeight: 600, fontSize: 15 }}>{r.name}</span>
-                    <span style={{ color: "#8a8a83", fontSize: 12.5 }}>· {r.sessions + r.legacySessions} sessions{r.legacySessions > 0 && <span style={{ color: "#8a8a83", fontSize: 11 }}> (+{r.legacySessions})</span>}</span>
+            {rows.map((r) => {
+              const legacyCount = clients.flatMap((c) => c.legacy_packages || [])
+                .filter((p) => p.therapist === r.name)
+                .reduce((s, p) => s + (p.sessionsUsed || 0), 0);
+              return (
+                <div key={r.name}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ ...S.dot, background: r.color }} />
+                      <span style={{ color: "#f1ead6", fontWeight: 600, fontSize: 15 }}>{r.name}</span>
+                    </div>
+                    <span style={{ fontSize: 13, color: "#9b9b95" }}>Bonus <b style={{ color: GOLD_LIGHT }}>{fmtEuro(r.bonus)}</b></span>
                   </div>
-                  <span style={{ fontSize: 13, color: "#9b9b95" }}>Bonus <b style={{ color: GOLD_LIGHT }}>{fmtEuro(r.bonus)}</b></span>
+                  <div style={{ fontSize: 12, color: "#a8a8a0", marginBottom: 6 }}>
+                    {r.regularSessions} sessions × {fmtEuro(r.earned > 0 ? r.earned / r.regularSessions : 0)}/session × 30% = {fmtEuro(r.regularBonus)}{r.legacyBonus > 0 && ` + legacy ${fmtEuro(r.legacyBonus)}`}
+                  </div>
+                  <div style={S.progressTrack}>
+                    <div style={{ ...S.progressFill, width: `${(r.earned / maxEarned) * 100}%`, background: `linear-gradient(90deg, ${r.color}aa, ${r.color})` }} />
+                  </div>
+                  <div style={{ fontSize: 11.5, color: "#8a8a83", marginTop: 4 }}>
+                    Revenue earned {fmtEuro(r.earned)}{legacyCount > 0 && ` · ${legacyCount} legacy sessions`}
+                  </div>
                 </div>
-                <div style={S.progressTrack}>
-                  <div style={{ ...S.progressFill, width: `${(r.earned / maxEarned) * 100}%`, background: `linear-gradient(90deg, ${r.color}aa, ${r.color})` }} />
-                </div>
-                <div style={{ fontSize: 11.5, color: "#8a8a83", marginTop: 4 }}>Earned {fmtEuro(r.earned)}</div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
