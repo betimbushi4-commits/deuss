@@ -322,11 +322,46 @@ export default function App() {
         keptIds.add(np.id);
         if (op.service !== np.service) changes.push(`${op.service} → ${np.service}`);
         if (op.sessions !== np.sessions) changes.push(`${np.service} sessions ${op.sessions} → ${np.sessions}`);
-        if (op.paid !== np.paid) changes.push(`${np.service} price ${fmtEuro(op.paid)} → ${fmtEuro(np.paid)}`);
+        if (op.paid !== np.paid) {
+          changes.push(`${np.service} price ${fmtEuro(op.paid)} → ${fmtEuro(np.paid)}`);
+          // Update all past "done" bookings for this package with new revenue
+          const newPerSession = np.perSession;
+          setBookings((bs) => bs.map((b) =>
+            b.packageId === np.id && b.status === "done" && !b.isLegacy
+              ? { ...b, revenue: newPerSession }
+              : b
+          ));
+          // Update in database
+          const affectedBookings = bookings.filter((b) => b.packageId === np.id && b.status === "done" && !b.isLegacy);
+          affectedBookings.forEach((b) => {
+            supabase.from("bookings").update({ revenue: newPerSession }).eq("id", b.id).then();
+          });
+        }
       }
     });
     old.packages.forEach((op) => {
       if (!keptIds.has(op.id)) changes.push(`removed ${op.sessions} ${op.service}`);
+    });
+
+    // Update legacy packages similarly
+    const oldLegacyById = Object.fromEntries((old.legacy_packages || []).map((p) => [p.id, p]));
+    const newLegacyPackages = data.legacy_packages || [];
+    newLegacyPackages.forEach((np) => {
+      const op = oldLegacyById[np.id];
+      if (op && op.paid !== np.paid) {
+        changes.push(`legacy ${np.service} price ${fmtEuro(op.paid)} → ${fmtEuro(np.paid)}`);
+        // Update all past "done" bookings for this legacy package
+        const newPerSession = np.sessions > 0 ? np.paid / np.sessions : 0;
+        setBookings((bs) => bs.map((b) =>
+          b.packageId === np.id && b.status === "done" && b.isLegacy
+            ? { ...b, revenue: newPerSession }
+            : b
+        ));
+        const affectedBookings = bookings.filter((b) => b.packageId === np.id && b.status === "done" && b.isLegacy);
+        affectedBookings.forEach((b) => {
+          supabase.from("bookings").update({ revenue: newPerSession }).eq("id", b.id).then();
+        });
+      }
     });
 
     log("client_edited",
