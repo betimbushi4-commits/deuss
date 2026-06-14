@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { LayoutGrid, Calendar as CalIcon, Users, Euro, History as HistoryIcon, CircleCheck as CheckCircle2, Circle as XCircle, CalendarDays, Plus, Trash2, Clock, MapPin, TrendingUp, Award, X, ChevronLeft, ChevronRight, CreditCard as Edit3, Package, LogOut, LogIn, Menu } from "lucide-react";
+import { LayoutGrid, Calendar as CalIcon, Users, Euro, History as HistoryIcon, CircleCheck as CheckCircle2, Circle as XCircle, CalendarDays, Plus, Trash2, Clock, MapPin, TrendingUp, Award, X, ChevronLeft, ChevronRight, CreditCard as Edit3, Package, LogOut, LogIn, Menu, Search } from "lucide-react";
 import { supabase } from "./src/lib/supabase";
 
 /* ============================================================
@@ -299,6 +299,16 @@ export default function App() {
     setClients((cs) => cs.map((c) => c.id === id
       ? { ...c, name: data.name, phone: data.phone, soldBy: data.soldBy, packages: newPackages }
       : c));
+
+    // Auto-update revenue on existing bookings when perSession changes
+    const oldPkgById = Object.fromEntries(old.packages.map((p) => [p.id, p]));
+    for (const np of newPackages) {
+      const op = oldPkgById[np.id];
+      if (op && op.perSession !== np.perSession && np.perSession > 0) {
+        await supabase.from("bookings").update({ revenue: np.perSession }).eq("package_id", np.id);
+        setBookings((bs) => bs.map((b) => b.packageId === np.id ? { ...b, revenue: np.perSession } : b));
+      }
+    }
 
     // Build a readable change summary for History
     const changes = [];
@@ -660,13 +670,27 @@ export default function App() {
 /* ============================================================
    Dashboard
    ============================================================ */
+const monthNav = (ym, delta) => {
+  let [y, m] = ym.split("-").map(Number);
+  m += delta;
+  if (m > 12) { m -= 12; y++; }
+  if (m < 1) { m += 12; y--; }
+  return `${y}-${String(m).padStart(2, "0")}`;
+};
+const monthLabel = (ym) => {
+  const [y, m] = ym.split("-").map(Number);
+  return new Date(y, m - 1).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+};
+
 function Dashboard({ bookings, clients, onComplete, onCancel }) {
-  const monthKey = todayISO().slice(0, 7);
-  const inMonth = (iso) => iso?.slice(0, 7) === monthKey;
+  const [selectedMonth, setSelectedMonth] = useState(todayISO().slice(0, 7));
+  const inMonth = (iso) => iso?.slice(0, 7) === selectedMonth;
+  const isCurrentMonth = selectedMonth === todayISO().slice(0, 7);
 
   const sessionsDone = bookings.filter((b) => b.status === "done" && inMonth(b.date)).length;
   const cancellations = bookings.filter((b) => b.status === "cancelled" && inMonth(b.date)).length;
   const revenue = bookings.filter((b) => b.status === "done" && inMonth(b.date)).reduce((s, b) => s + b.revenue, 0);
+  const bonus = revenue * THERAPIST_BONUS_RATE;
   const packagesValue = clients
     .filter((c) => inMonth(new Date(c.createdAt).toISOString()))
     .reduce((s, c) => s + (c.packages || []).reduce((a, p) => a + p.paid, 0), 0);
@@ -677,16 +701,32 @@ function Dashboard({ bookings, clients, onComplete, onCancel }) {
     .sort((a, b) => a.time.localeCompare(b.time));
 
   const cards = [
-    { label: "SESSIONS DONE (MONTH)", value: sessionsDone, icon: CheckCircle2 },
-    { label: "CANCELLATIONS (MONTH)", value: cancellations, icon: XCircle },
-    { label: "YOUR REVENUE (MONTH)", value: fmtEuro(revenue), icon: Euro },
-    { label: "PACKAGES SOLD (MONTH)", value: fmtEuro(packagesValue), icon: CalendarDays },
+    { label: "SESSIONS DONE", value: sessionsDone, icon: CheckCircle2 },
+    { label: "CANCELLATIONS", value: cancellations, icon: XCircle },
+    { label: "TOTAL REVENUE", value: fmtEuro(revenue), icon: Euro },
+    { label: "THERAPIST BONUS (30%)", value: fmtEuro(bonus), icon: Award },
+    { label: "PACKAGES SOLD", value: fmtEuro(packagesValue), icon: CalendarDays },
   ];
 
   return (
     <div className="fade">
-      <h1 style={S.h1}>Hello, Dion</h1>
-      <p style={S.sub}>Your month at a glance</p>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h1 style={S.h1}>Dashboard</h1>
+          <p style={S.sub}>Studio performance at a glance</p>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#15130f", border: "1px solid #2a2620", borderRadius: 10, padding: "6px 10px" }}>
+          <button onClick={() => setSelectedMonth(monthNav(selectedMonth, -1))} style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 4px", color: GOLD, display: "flex", alignItems: "center" }}>
+            <ChevronLeft size={18} />
+          </button>
+          <span style={{ color: "#f1ead6", fontSize: 14, fontWeight: 600, minWidth: 140, textAlign: "center" }}>
+            {monthLabel(selectedMonth)}
+          </span>
+          <button onClick={() => setSelectedMonth(monthNav(selectedMonth, 1))} disabled={isCurrentMonth} style={{ background: "none", border: "none", cursor: isCurrentMonth ? "default" : "pointer", padding: "2px 4px", color: isCurrentMonth ? "#3a3630" : GOLD, display: "flex", alignItems: "center" }}>
+            <ChevronRight size={18} />
+          </button>
+        </div>
+      </div>
       <div style={S.hr} />
 
       <div style={S.cardRow}>
@@ -747,18 +787,26 @@ function Clients({ clients, bookings, onAdd, onEdit, onDelete }) {
   const [formState, setFormState] = useState(null);
   const [confirmDel, setConfirmDel] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [search, setSearch] = useState("");
   const itemsPerPage = 15;
 
-  const totalPages = Math.ceil(clients.length / itemsPerPage);
+  const filtered = clients.filter((c) => {
+    const q = search.toLowerCase();
+    return !q || c.name.toLowerCase().includes(q) || (c.phone || "").includes(q) || (c.soldBy || "").toLowerCase().includes(q);
+  });
+
+  useEffect(() => { setCurrentPage(1); }, [search]);
+
+  const totalPages = Math.ceil(filtered.length / itemsPerPage);
   const start = (currentPage - 1) * itemsPerPage;
-  const paginatedClients = clients.slice(start, start + itemsPerPage);
+  const paginatedClients = filtered.slice(start, start + itemsPerPage);
 
   return (
     <div className="fade">
       <div style={S.pageHead}>
         <div>
           <h1 style={S.h1}>Clients</h1>
-          <p style={S.sub}>{clients.length} clients · Multiple packages per client · edits are saved to History</p>
+          <p style={S.sub}>{clients.length} clients · {filtered.length !== clients.length ? `${filtered.length} shown · ` : ""}Multiple packages per client</p>
         </div>
         <button className="goldbtn" style={S.goldBtn} onClick={() => setFormState({ mode: "add" })}>
           <Plus size={16} /> Add client
@@ -766,11 +814,27 @@ function Clients({ clients, bookings, onAdd, onEdit, onDelete }) {
       </div>
       <div style={S.hr} />
 
-      {clients.length === 0 ? (
-        <div className="card" style={S.panel}><p style={{ color: "#8a8a83" }}>No clients yet. Add your first one above.</p></div>
+      <div style={{ position: "relative", marginBottom: 16, maxWidth: 340 }}>
+        <Search size={15} color="#6f6f68" style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+        <input
+          className="inp"
+          style={{ ...S.input, paddingLeft: 36, margin: 0 }}
+          placeholder="Search by name, phone or therapist…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        {search && (
+          <button onClick={() => setSearch("")} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#6f6f68", display: "flex", padding: 2 }}>
+            <X size={14} />
+          </button>
+        )}
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="card" style={S.panel}><p style={{ color: "#8a8a83" }}>{search ? `No clients match "${search}".` : "No clients yet. Add your first one above."}</p></div>
       ) : (
         <>
-          <div className="card" style={{ ...S.panel, padding: 0, overflow: "hidden", marginTop: 16 }}>
+          <div className="card" style={{ ...S.panel, padding: 0, overflow: "hidden", marginTop: 0 }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ borderBottom: "1px solid #221f1a", background: "#15130f" }}>
