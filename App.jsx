@@ -22,9 +22,11 @@ const SERVICES = [
   "Relax Massage",
 ];
 
-const ROOMS = ["Room 1", "Room 2", "Room 3"];
+const ROOMS = ["Room 1", "Room 2", "Room 3", "Room 4"];
 const ROOM_COUNT = ROOMS.length;
-const THERAPIST_BONUS_RATE = 0.30; // 30% profit to physiotherapist
+const THERAPIST_ROOM = { Dion: "Room 1", Nesa: "Room 2", Arlinda: "Room 3", Diellza: "Room 4" };
+const CLIENT_BONUS_RATE = 0.30;   // 30% margin on session price
+const THERAPIST_BONUS_RATE = 0.30; // 30% of that margin paid to therapist
 const SESSION_MIN = 60; // each session lasts 60 minutes
 
 // Hourly grid rows shown in the calendar (08:00 .. 21:00)
@@ -403,9 +405,10 @@ export default function App() {
       const p = cl?.packages.find((pp) => pp.id === done.packageId);
       if (p) counter = `${Math.min(p.sessions, p.sessionsUsed + 1)}/${p.sessions}`;
     }
-    const bonus = (done.revenue || 0) * THERAPIST_BONUS_RATE;
+    const clientBonus = (done.revenue || 0) * CLIENT_BONUS_RATE;
+    const bonus = clientBonus * THERAPIST_BONUS_RATE;
     log("session_done",
-      `Session completed: ${done.clientName} (${done.service}) with ${done.therapist} — session ${counter} · bonus ${fmtEuro(bonus)} (${fmtEuro(done.revenue)})`);
+      `Session completed: ${done.clientName} (${done.service}) with ${done.therapist} — session ${counter} · client bonus ${fmtEuro(clientBonus)} → therapist bonus ${fmtEuro(bonus)} (${fmtEuro(done.revenue)})`);
   };
 
   const cancelBooking = async (id) => {
@@ -521,7 +524,7 @@ export default function App() {
         </div>
         <div style={S.sideFoot}>
           <div style={{ fontSize: 11, color: "#6f6f68", lineHeight: 1.6 }}>
-            {ROOM_COUNT} rooms · 08:00–21:00<br />Bonus {Math.round(THERAPIST_BONUS_RATE * 100)}%
+            {ROOM_COUNT} rooms · 08:00–21:00<br />Therapist bonus {Math.round(CLIENT_BONUS_RATE * 100)}% × {Math.round(THERAPIST_BONUS_RATE * 100)}%
           </div>
         </div>
       </aside>
@@ -581,7 +584,7 @@ export default function App() {
         </div>
         <div style={S.sideFoot}>
           <div style={{ fontSize: 11, color: "#6f6f68", lineHeight: 1.6 }}>
-            {ROOM_COUNT} rooms · 08:00–21:00<br />Bonus {Math.round(THERAPIST_BONUS_RATE * 100)}%
+            {ROOM_COUNT} rooms · 08:00–21:00<br />Therapist bonus {Math.round(CLIENT_BONUS_RATE * 100)}% × {Math.round(THERAPIST_BONUS_RATE * 100)}%
           </div>
         </div>
       </aside>
@@ -690,7 +693,7 @@ function Dashboard({ bookings, clients, onComplete, onCancel }) {
   const sessionsDone = bookings.filter((b) => b.status === "done" && inMonth(b.date)).length;
   const cancellations = bookings.filter((b) => b.status === "cancelled" && inMonth(b.date)).length;
   const revenue = bookings.filter((b) => b.status === "done" && inMonth(b.date)).reduce((s, b) => s + b.revenue, 0);
-  const bonus = revenue * THERAPIST_BONUS_RATE;
+  const bonus = revenue * CLIENT_BONUS_RATE * THERAPIST_BONUS_RATE;
   const packagesValue = clients
     .filter((c) => inMonth(new Date(c.createdAt).toISOString()))
     .reduce((s, c) => s + (c.packages || []).reduce((a, p) => a + p.paid, 0), 0);
@@ -704,7 +707,7 @@ function Dashboard({ bookings, clients, onComplete, onCancel }) {
     { label: "SESSIONS DONE", value: sessionsDone, icon: CheckCircle2 },
     { label: "CANCELLATIONS", value: cancellations, icon: XCircle },
     { label: "TOTAL REVENUE", value: fmtEuro(revenue), icon: Euro },
-    { label: "THERAPIST BONUS (30%)", value: fmtEuro(bonus), icon: Award },
+    { label: "THERAPIST BONUS (30%×30%)", value: fmtEuro(bonus), icon: Award },
     { label: "PACKAGES SOLD", value: fmtEuro(packagesValue), icon: CalendarDays },
   ];
 
@@ -1182,7 +1185,10 @@ function CalendarView({ bookings, clients, onAdd, onComplete, onCancel, onMove, 
         <div style={S.gridScroll}>
           <div style={{ ...S.gridRow, ...S.gridHeadRow }}>
             <div style={{ ...S.gridTimeCell, ...S.gridHeadCell }}>Time</div>
-            {ROOMS.map((r) => <div key={r} style={{ ...S.gridCell, ...S.gridHeadCell }}>{r}</div>)}
+            {ROOMS.map((r) => {
+              const therapist = Object.entries(THERAPIST_ROOM).find(([, v]) => v === r)?.[0];
+              return <div key={r} style={{ ...S.gridCell, ...S.gridHeadCell }}>{r}<br /><span style={{ fontSize: 10, color: therapistColor(therapist), fontWeight: 600 }}>{therapist}</span></div>;
+            })}
           </div>
           {HOURS.map((time) => (
             <div key={time} style={S.gridRow}>
@@ -1252,7 +1258,7 @@ function BookingModal({ clients, bookings, date, preset, onClose, onSave }) {
     clientId: firstClient?.id || "",
     packageId: firstClient?.packages?.[0]?.id || "",
     therapist: THERAPISTS[0].name,
-    room: preset?.room || ROOMS[0],
+    room: THERAPIST_ROOM[THERAPISTS[0].name],
     date,
     time: preset?.time || HOURS[0],
   });
@@ -1329,7 +1335,7 @@ function BookingModal({ clients, bookings, date, preset, onClose, onSave }) {
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {THERAPISTS.map((t) => (
             <button key={t.name} className="mini"
-              onClick={() => setF({ ...f, therapist: t.name })}
+              onClick={() => setF({ ...f, therapist: t.name, room: THERAPIST_ROOM[t.name] })}
               style={{
                 ...S.therChip,
                 borderColor: f.therapist === t.name ? t.color : "#2a2a26",
@@ -1351,25 +1357,9 @@ function BookingModal({ clients, bookings, date, preset, onClose, onSave }) {
           </select>
         </Field>
       </div>
-      <Field label="Room">
-        <div style={{ display: "flex", gap: 8 }}>
-          {ROOMS.map((r) => {
-            const taken = bookings.find((b) => b.status !== "cancelled" && b.date === f.date && b.room === r && overlaps(b.time, f.time));
-            return (
-              <button key={r} className="mini" disabled={!!taken}
-                onClick={() => setF({ ...f, room: r })}
-                style={{
-                  ...S.roomChip,
-                  opacity: taken ? 0.4 : 1,
-                  borderColor: f.room === r ? GOLD : "#2a2a26",
-                  background: f.room === r ? "rgba(201,162,39,0.12)" : "transparent",
-                  color: f.room === r ? GOLD_LIGHT : "#9b9b95",
-                  cursor: taken ? "not-allowed" : "pointer",
-                }}>
-                {r}{taken ? " · busy" : ""}
-              </button>
-            );
-          })}
+      <Field label="Room (auto-assigned by therapist)">
+        <div style={{ ...S.input, color: GOLD_LIGHT, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
+          <MapPin size={14} /> {f.room}
         </div>
       </Field>
       {err && <div style={S.errBox}>{err}</div>}
@@ -1402,10 +1392,10 @@ function MoveModal({ booking, bookings, onClose, onSave }) {
           </select>
         </Field>
       </div>
-      <Field label="Room">
-        <select className="inp" style={S.input} value={f.room} onChange={(e) => setF({ ...f, room: e.target.value })}>
-          {ROOMS.map((r) => <option key={r} value={r}>{r}</option>)}
-        </select>
+      <Field label="Room (auto-assigned by therapist)">
+        <div style={{ ...S.input, color: GOLD_LIGHT, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
+          <MapPin size={14} /> {f.room}
+        </div>
       </Field>
       {err && <div style={S.errBox}>{err}</div>}
       <button className="goldbtn" style={{ ...S.goldBtn, width: "100%", marginTop: 16, justifyContent: "center" }} onClick={submit}>
@@ -1764,7 +1754,8 @@ function Revenue({ bookings, clients }) {
     const mine = done.filter((b) => b.therapist === t.name);
     const sessions = mine.length;
     const earned = mine.reduce((s, b) => s + b.revenue, 0);
-    const bonus = earned * THERAPIST_BONUS_RATE;
+    const clientBonus = earned * CLIENT_BONUS_RATE;
+    const bonus = clientBonus * THERAPIST_BONUS_RATE;
 
     // Legacy sessions (historical sessions not counted in revenue but counted for sessions total)
     const legacySessions = clients.flatMap((c) => c.legacy_packages || [])
@@ -1779,7 +1770,7 @@ function Revenue({ bookings, clients }) {
     const soldPkgs = soldClients.flatMap((c) => c.packages || []);
     const packagesSold = soldPkgs.length;
     const soldValue = soldPkgs.reduce((s, p) => s + p.paid, 0);
-    return { ...t, sessions, legacySessions, earned, bonus, byService, packagesSold, soldValue };
+    return { ...t, sessions, legacySessions, earned, clientBonus, bonus, byService, packagesSold, soldValue };
   });
 
   const totalEarned = rows.reduce((s, r) => s + r.earned, 0);
@@ -1791,7 +1782,7 @@ function Revenue({ bookings, clients }) {
   return (
     <div className="fade">
       <h1 style={S.h1}>My revenue</h1>
-      <p style={S.sub}>Per physiotherapist · bonus = {Math.round(THERAPIST_BONUS_RATE * 100)}% of revenue from completed sessions</p>
+      <p style={S.sub}>Per physiotherapist · client bonus {Math.round(CLIENT_BONUS_RATE * 100)}% of revenue → therapist bonus {Math.round(THERAPIST_BONUS_RATE * 100)}% of client bonus</p>
       <div style={S.hr} />
 
       <div style={S.cardRow}>
@@ -1804,7 +1795,7 @@ function Revenue({ bookings, clients }) {
           <div style={S.statValue}>{fmtEuro(totalEarned)}</div>
         </div>
         <div className="card" style={S.statCard}>
-          <div style={S.statTop}><span style={S.statLabel}>TOTAL BONUS</span><Award size={18} color={GOLD} /></div>
+          <div style={S.statTop}><span style={S.statLabel}>TOTAL THERAPIST BONUS</span><Award size={18} color={GOLD} /></div>
           <div style={S.statValue}>{fmtEuro(totalBonus)}</div>
         </div>
         <div className="card" style={S.statCard}>
@@ -1827,7 +1818,7 @@ function Revenue({ bookings, clients }) {
                     <span style={{ color: "#f1ead6", fontWeight: 600, fontSize: 15 }}>{r.name}</span>
                     <span style={{ color: "#8a8a83", fontSize: 12.5 }}>· {r.sessions + r.legacySessions} sessions{r.legacySessions > 0 && <span style={{ color: "#8a8a83", fontSize: 11 }}> (+{r.legacySessions})</span>}</span>
                   </div>
-                  <span style={{ fontSize: 13, color: "#9b9b95" }}>Bonus <b style={{ color: GOLD_LIGHT }}>{fmtEuro(r.bonus)}</b></span>
+                  <span style={{ fontSize: 13, color: "#9b9b95" }}>Client bonus <b style={{ color: "#cfcfc8" }}>{fmtEuro(r.clientBonus)}</b> → Therapist <b style={{ color: GOLD_LIGHT }}>{fmtEuro(r.bonus)}</b></span>
                 </div>
                 <div style={S.progressTrack}>
                   <div style={{ ...S.progressFill, width: `${(r.earned / maxEarned) * 100}%`, background: `linear-gradient(90deg, ${r.color}aa, ${r.color})` }} />
@@ -2073,7 +2064,7 @@ const S = {
   navArrow: { background: "#16140f", border: "1px solid #2a2722", borderRadius: 9, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" },
 
   gridScroll: { overflowX: "auto" },
-  gridRow: { display: "grid", gridTemplateColumns: "70px repeat(3, minmax(150px, 1fr))", borderBottom: "1px solid #1c1a16" },
+  gridRow: { display: "grid", gridTemplateColumns: "70px repeat(4, minmax(150px, 1fr))", borderBottom: "1px solid #1c1a16" },
   gridHeadRow: { position: "sticky", top: 0, background: "#15130f", zIndex: 2 },
   gridHeadCell: { fontSize: 12, letterSpacing: 1, color: "#8a8a83", fontWeight: 700, textTransform: "uppercase" },
   gridTimeCell: { padding: "10px 12px", fontSize: 13, color: "#9b9b95", borderRight: "1px solid #1c1a16", display: "flex", alignItems: "flex-start" },
